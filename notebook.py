@@ -130,12 +130,12 @@ def _(ARGS, mo, task):
     model_ui = mo.ui.dropdown(
         options=["qwen3.5:4b", "gemma4:e4b-it-qat", "gemma4:12b",
                  "hf.co/JetBrains/Mellum2-12B-A2.5B-Thinking-GGUF-Q4_K_M", "qwen3.8:27b", "qwen3.5:9b"],
-        value=ARGS.get("model") or "qwen3.5:9b", label="model")
+        value=ARGS.get("model") or "qwen3.5:4b", label="model")
     mo.vstack([task(r"""
     ## 1.1 Choose a model for your RAM
 
     | RAM | model | download |
-    |---|---|---|
+    |:---|:---|:---|
     | 8 GB | `qwen3.5:4b` (or `gemma4:e4b-it-qat`) | 3.4 GB |
     | 16 GB | `gemma4:12b` (or `hf.co/JetBrains/Mellum2-12B-A2.5B-Thinking-GGUF-Q4_K_M`) | 7.4 GB |
     | 32 GB | `qwen3.8:27b` | 17 GB |
@@ -159,6 +159,23 @@ def _(ARGS, model_ui):
 
 
 @app.cell(hide_code=True)
+def _(MODEL, mo, ollama):
+    mo.stop(not mo.running_in_notebook())   # preflight only matters in the notebook
+    import httpx
+    try:
+        ollama.show(MODEL)
+        _status = mo.md(f"✅ `{MODEL}` is available")
+    except ollama.ResponseError as _e:
+        if _e.status_code != 404:
+            raise
+        _status = mo.callout(mo.md(f"Model `{MODEL}` is not downloaded. Run in a terminal:\n\n```bash\nollama pull {MODEL}\n```"), kind="danger")
+    except (ConnectionError, httpx.ConnectError):
+        _status = mo.callout(mo.md("Ollama is not running. Start the Ollama app (macOS/Windows) or run `ollama serve` (Linux), then re-run this cell."), kind="danger")
+    _status
+    return
+
+
+@app.cell(hide_code=True)
 def _(mo):
     mo.vstack([mo.md(r"""
     ## 1.2 While that downloads: what is an inference server?
@@ -168,7 +185,7 @@ def _(mo):
     - Ollama defaults to a 4k context on small GPUs. Agents need `num_ctx` ≥ 16k
     """), mo.hstack([mo.md(r"""
     | | Ollama | llama.cpp (`llama-server`) | DwarfStar (`antirez/ds4`) |
-    |---|---|---|---|
+    |:---|:---|:---|:---|
     | what | Docker-for-models: pull, run, one local API | the engine itself, every knob exposed | one-model-class C engine by the Redis author |
     | run | `ollama run qwen3.5:9b` | `llama-server -hf ggml-org/…-GGUF` | `./ds4-server --ctx 32768` |
     | hardware | Metal, CUDA, ROCm, Vulkan, CPU | same + SYCL, OpenCL, RPC … | 96 GB Macs, CUDA, ROCm |
@@ -179,14 +196,14 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 1.2 Four API shapes, one model
+    ## 1.3 Four API shapes, one model
 
-    - `/api/chat` belongs to Ollama, `/v1/chat/completions` to OpenAI and `/v1/messages` to Anthropic
+    - `/api/chat` is Ollama's, `/v1/chat/completions` and `/v1/responses` OpenAI's, `/v1/messages` Anthropic's
     - Existing clients like OpenAI SDK, Claude Code and Codex can use a local model
     - The same prompt produced the same tool call. Only the JSON envelope differed
 
     | endpoint | tool call lives in | thinking lives in |
-    |---|---|---|
+    |:---|:---|:---|
     | `POST /api/chat` | `message.tool_calls[].function.{name, arguments: object}` | `message.thinking` |
     | `POST /v1/chat/completions` | `choices[0].message.tool_calls[].function.arguments` (JSON **string**) | `message.reasoning` |
     | `POST /v1/responses` | `output[]` item `type: "function_call"` | `output[]` item `type: "reasoning"` |
@@ -200,7 +217,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo, task):
     task(r"""
-    ## 1.3 Your first local chat
+    ## 1.4 Your first local chat
 
     - Implement `chat(messages, tools)`: call `ollama.chat` once and return `.message`
     - Pass `MODEL` and `OPTIONS`. The message contains `.content`, `.thinking` and `.tool_calls`
@@ -214,7 +231,7 @@ def _(MODEL, OPTIONS, ollama):
     def chat(messages, tools=None):
         """One model call. Returns the assistant message (content, thinking, tool_calls)."""
         # TODO: one call to ollama.chat(...) with MODEL, messages, tools and OPTIONS; return .message
-        raise NotImplementedError("chat")
+        raise NotImplementedError("chat(): fill in the TODO above")
     return (chat,)
 
 
@@ -235,7 +252,7 @@ def _(mo):
     ## 2.0 A tool call is just text
 
     - The model emits the tags it was trained on. The server parses them into JSON
-    - Qwen3.5 writes `<tool_call><function=run_shell><parameter=command>…`. Ollama returns `tool_calls`
+    - Qwen3.5 writes `<tool_call><function=run_shell><parameter=command>`. Ollama returns `tool_calls`
     - Your program decides whether to run it. Valid syntax does not grant permission
 
     ```text
@@ -275,10 +292,10 @@ def _(subprocess, workshop):
             command: the command to run, e.g. `node --check app.js`
         """
         # TODO: refuse commands containing anything in DENY (return "BLOCKED: ...")
-        # TODO: subprocess.run(command, shell=True, cwd=workshop.workdir(), timeout=60, text=True,
-        #                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        # TODO: p = subprocess.run(command, shell=True, cwd=workshop.workdir(), timeout=60, text=True, ...)
+        # TODO: ... with stdout=subprocess.PIPE, stderr=subprocess.STDOUT so the model sees stderr too
         # TODO: return the output followed by a last line "[exit code N]"; on timeout return an ERROR string
-        raise NotImplementedError("run_shell")
+        raise NotImplementedError("run_shell(): fill in the TODO above")
 
     SHELL_TOOLS = {"run_shell": (workshop.schema_of(run_shell), run_shell)}
     return SHELL_TOOLS, run_shell
@@ -286,7 +303,7 @@ def _(subprocess, workshop):
 
 @app.cell
 def _(SHELL_TOOLS, mo):
-    mo.vstack([mo.md("**This is everything the model knows about your tool:**"),
+    mo.vstack([mo.md("## 2.1 The schema the model sees\n\nThis is everything the model knows about your tool:"),
                mo.json(SHELL_TOOLS["run_shell"][0])])
     return
 
@@ -320,7 +337,7 @@ def _(chat, trace):
         # TODO: unknown name -> return an ERROR string listing the available tools
         # TODO: result = str(tools[name][1](**args)); wrap exceptions into an ERROR string
         # TODO: cap result at ~8000 chars (tool output eats context), then return it
-        raise NotImplementedError("execute")
+        raise NotImplementedError("execute(): fill in the TODO above")
 
     def agent_loop(messages, tools, max_turns=25) -> str:
         """Call the model until it answers without tool calls (or the turn budget runs out)."""
@@ -328,10 +345,10 @@ def _(chat, trace):
         # TODO: for each turn: reply = chat(messages, schemas); messages.append(reply)
         # TODO:   print the trace: trace.rule(), trace.thinking(), trace.assistant()
         # TODO:   if not reply.tool_calls: return "stopped"
-        # TODO:   for call in reply.tool_calls: result = execute(call, tools);
+        # TODO:   for call in reply.tool_calls: result = execute(call, tools)
         # TODO:       messages.append({"role": "tool", "tool_name": call.function.name, "content": result})
         # TODO: after the loop: return "max_turns"
-        raise NotImplementedError("agent_loop")
+        raise NotImplementedError("agent_loop(): fill in the TODO above")
     return agent_loop, execute
 
 
@@ -352,13 +369,14 @@ def _(WORK, harness, mo):
     REPO_DIR = harness.prepare_repo("Ar4l/simple-todo-app", WORK)
     question_ui = mo.ui.text(value="How many lines does app.js have, and which function deletes a todo?", full_width=True)
     ask_ui = mo.ui.run_button(label="Ask the agent")
-    mo.vstack([mo.md(f"working directory: `{REPO_DIR}`"), question_ui, ask_ui])
+    _rel = REPO_DIR.relative_to(mo.notebook_dir()) if REPO_DIR.is_relative_to(mo.notebook_dir()) else REPO_DIR
+    mo.vstack([mo.md(f"## 2.3 Ask the agent\n\nworking directory: `{_rel}`"), question_ui, ask_ui])
     return REPO_DIR, ask_ui, question_ui
 
 
 @app.cell
 def _(SHELL_TOOLS, agent_loop, ask_ui, mo, question_ui):
-    mo.stop(not ask_ui.value, mo.md("*press the button above*"))
+    mo.stop(not ask_ui.value, mo.md("*press **Ask the agent** first*"))
     _messages = [{"role": "system", "content": "You answer questions about the repo in the working directory using run_shell. Paths are relative to the repo root; never use cd."},
                  {"role": "user", "content": question_ui.value}]
     agent_loop(_messages, SHELL_TOOLS)
@@ -375,7 +393,7 @@ def _(mo):
     - Training on many formats and using fewer atomic tools made the difference
 
     | family | delimiter | argument encoding |
-    |---|---|---|
+    |:---|:---|:---|
     | Qwen3.5 / Qwen3-Coder | `<tool_call><function=…><parameter=…>` | XML per argument, raw strings |
     | DeepSeek V3.2 / V4 | `<｜DSML｜invoke name=…>` | XML per argument |
     | Gemma 4 | `<｜tool_call>call:NAME{…}<tool_call｜>` | key:value, quote token |
@@ -447,7 +465,7 @@ def _(mo, task):
 
     - `workshop/mcp_server.py` provides `read_file`, `write_file` and `edit_file`, restricted to the repo
     - Start it with `McpSource([...])`, then create `FILE_TOOLS` from `src.tools`
-    - Build each entry as `(to_ollama_tool(t), lambda **args: src.call(t.name, args))`
+    - Build each entry as `(to_ollama_tool(t), (lambda name: lambda **args: src.call(name, args))(t.name))`: a plain lambda would late-bind `t`
     """)
     return
 
@@ -456,9 +474,12 @@ def _(mo, task):
 def _(McpSource, REPO_DIR, mo, sys, to_ollama_tool):
     src = McpSource([sys.executable, str(mo.notebook_dir() / "workshop" / "mcp_server.py"), str(REPO_DIR)])
 
-    # TODO: FILE_TOOLS = {t.name: (to_ollama_tool(t), <function calling src.call(t.name, args)>) for t in src.tools}
+    # TODO: FILE_TOOLS = {t.name: (to_ollama_tool(t), (lambda name: lambda **args: src.call(name, args))(t.name)) for t in src.tools}
+    # TODO: (a plain `lambda **args: src.call(t.name, args)` late-binds t, so every tool would call the last one;
+    # TODO:  the closure factory above, or a small make_tool(name) helper, binds the name per tool)
     FILE_TOOLS = {}
-    mo.md("MCP server exposes: " + ", ".join(f"`{n}`" for n in FILE_TOOLS))
+    mo.md("## 3.2 Tools from the MCP server\n\n" + ("MCP server exposes: " + ", ".join(f"`{n}`" for n in FILE_TOOLS)
+                                                  if FILE_TOOLS else "nothing registered yet: fill in the TODO in this cell"))
     return FILE_TOOLS, src
 
 
@@ -510,37 +531,19 @@ def _(ARGS, mo):
         value=ARGS.get("issue") or "https://github.com/Ar4l/simple-todo-app/issues/1", label="issue")
     pr_ui = mo.ui.checkbox(value=True, label="open a draft PR when done")
     run_ui = mo.ui.run_button(label="Run the agent on this issue")
-    mo.hstack([issue_ui, pr_ui, run_ui], justify="start")
+    mo.vstack([mo.md("## 4.1 Pick an issue"), mo.hstack([issue_ui, pr_ui, run_ui], justify="start")])
     return issue_ui, pr_ui, run_ui
 
 
 @app.cell
 def _(ARGS, MODEL, OPTIONS, TOOLS, WORK, agent_loop, harness, issue_ui, mo, pr_ui, run_ui):
-    mo.stop(not (run_ui.value or ARGS.get("issue")), mo.md("*press the button above*"))
+    mo.stop(not (run_ui.value or ARGS.get("issue")), mo.md("*press **Run the agent on this issue** first*"))
     result = harness.solve_issue(
         ARGS.get("issue") or issue_ui.value, agent_loop, TOOLS,
         model=MODEL, options=OPTIONS, root=WORK,
         open_pr=pr_ui.value and "dry-run" not in ARGS)
     result
     return (result,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## 4.2 What to expect
-
-    - Verified: `qwen3.8:27b` fixed issue 1 in 2 minutes and issue 2 in 9 (PR #8)
-    - Feature issues need 10+ turns; tool output eats context, so results are capped at 8k chars
-    - Smaller models are slower and edit less precisely. Read their PRs with care
-
-    | model | issue | turns | wall | result |
-    |---|---|---|---|---|
-    | `qwen3.8:27b` | 1 (bug) | 5 | 2 min | correct guard on `.focus()` (dry run, no PR) |
-    | `qwen3.8:27b` | 2 (feature) | 11 | 8.5 min | [draft PR #8](https://github.com/Ar4l/simple-todo-app/pull/8): app.js +54, style.css +17 |
-    | `qwen3.8:27b` | 2 (feature) | 14 | 8 min | context overflow at 16k, before `num_ctx` 32k and the 8k cap |
-    """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -553,7 +556,7 @@ def _(mo):
     - DeepSeek's `dsh` uses `pi`'s model layer. `pi` intentionally ships without MCP
 
     | | mini-swe-agent | pi | DeepSeek Harness (`dsh`) |
-    |---|---|---|---|
+    |:---|:---|:---|:---|
     | language | Python | TypeScript | TypeScript + Python SDK |
     | tools | bash only | read, bash, edit, write, grep, find, ls | 17 plugins + MCP client |
     | agent loop | 190 lines | 803 lines | 2.4k lines |

@@ -95,8 +95,12 @@ def solve_issue(url: str, agent_loop, tools: dict, *, model: str, options: dict,
 
     summary = next((m.content for m in reversed(messages) if getattr(m, "role", None) == "assistant" and m.content), "")
     if open_pr:
-        result["pr"] = _open_pr(owner, repo, n, issue["title"], branch, model, summary)
-        trace.verdict(True, f"draft PR opened for a human to review: {result['pr']}")
+        try:
+            result["pr"] = _open_pr(owner, repo, n, issue["title"], branch, model, summary)
+            trace.verdict(True, f"draft PR opened for a human to review: {result['pr']}")
+        except Exception as e:  # offline, gh not logged in, ...: the work is not lost
+            trace.verdict(False, f"the commit exists locally on branch {branch} in {workdir()} but could not be pushed "
+                                 f"(offline or gh error): {type(e).__name__}: {str(e)[:200]}")
     else:
         trace.note(f"dry run: PR not opened; the diff is on branch {branch} in {workdir()}")
     return result
