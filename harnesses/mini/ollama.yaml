@@ -1,0 +1,10 @@
+model:
+  model_name: "openai/qwen3.5:9b"
+  cost_tracking: "ignore_errors"
+  model_kwargs:
+    api_base: "http://localhost:11434/v1"
+    api_key: "ollama"
+    drop_params: true
+agent:
+  step_limit: 15
+  cost_limit: 0

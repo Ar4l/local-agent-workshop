@@ -1,0 +1,13 @@
+[project]
+name = "local-agent-workshop"
+version = "0.1.0"
+description = "How to create a local agent: Ollama + tool calling + MCP, in one marimo notebook"
+requires-python = ">=3.11"
+dependencies = [
+    "marimo>=0.24.0",
+    "ollama>=0.6.2",
+    "mcp>=1.0",
+]
+
+[tool.uv]
+package = false

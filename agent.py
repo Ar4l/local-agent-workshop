@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.24.0"
-app = marimo.App(width="medium", layout_file="layouts/notebook.slides.json")
+app = marimo.App(width="medium", layout_file="layouts/agent.slides.json")
 
 
 @app.cell
@@ -20,7 +20,7 @@ def _():
     from workshop.mcp_bridge import McpSource, to_ollama_tool
 
     WORK = mo.notebook_dir() / "work"          # clones live here (git-ignored)
-    ARGS = mo.cli_args()                        # `uv run notebook.py -- --issue URL --model NAME`
+    ARGS = mo.cli_args()                        # `uv run agent.py -- --issue URL --model NAME`
 
     def task(md: str):
         """Slides that ask YOU to do something look like this."""
@@ -206,8 +206,9 @@ def _(mo, task):
 def _(MODEL, OPTIONS, ollama):
     def chat(messages, tools=None):
         """One model call. Returns the assistant message (content, thinking, tool_calls)."""
-        # TODO: one call to ollama.chat(...) with MODEL, messages, tools and OPTIONS; return .message
-        raise NotImplementedError("chat")
+        # --- solution: chat ---
+        return ollama.chat(MODEL, messages=messages, tools=tools, options=OPTIONS).message
+        # --- end solution ---
     return (chat,)
 
 
@@ -267,11 +268,16 @@ def _(subprocess, workshop):
         Args:
             command: the command to run, e.g. `node --test tests/`
         """
-        # TODO: refuse commands containing anything in DENY (return "BLOCKED: ...")
-        # TODO: subprocess.run(command, shell=True, cwd=workshop.workdir(), timeout=60, text=True,
-        #                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        # TODO: return the output followed by a last line "[exit code N]"; on timeout return an ERROR string
-        raise NotImplementedError("run_shell")
+        # --- solution: run_shell ---
+        if any(bad in command for bad in DENY):
+            return f"BLOCKED: {command!r} is not allowed"
+        try:
+            p = subprocess.run(command, shell=True, cwd=workshop.workdir(), timeout=60, text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        except subprocess.TimeoutExpired:
+            return "ERROR: timed out after 60 s"
+        return f"{p.stdout[-4000:]}\n[exit code {p.returncode}]"
+        # --- end solution ---
 
     SHELL_TOOLS = {"run_shell": (workshop.schema_of(run_shell), run_shell)}
     return SHELL_TOOLS, run_shell
@@ -309,22 +315,38 @@ def _(mo, task):
 def _(chat, trace):
     def execute(call, tools) -> str:
         """Run one tool call. Always returns a string: errors are for the model to read."""
-        # TODO: name = call.function.name, args = dict(call.function.arguments or {})
-        # TODO: unknown name -> return an ERROR string listing the available tools
-        # TODO: result = str(tools[name][1](**args)); wrap exceptions into an ERROR string
-        # TODO: cap result at ~8000 chars (tool output eats context), then return it
-        raise NotImplementedError("execute")
+        # --- solution: execute ---
+        name, args = call.function.name, dict(call.function.arguments or {})
+        if name not in tools:
+            return f"ERROR: unknown tool {name!r}; available: {sorted(tools)}"
+        try:
+            result = str(tools[name][1](**args))
+        except Exception as e:
+            return f"ERROR: {type(e).__name__}: {e}"
+        if len(result) > 8000:  # tool output eats context: keep the head, tell the model
+            result = result[:8000] + f"\n… [{len(result) - 8000} more chars cut; read smaller ranges]"
+        return result
+        # --- end solution ---
 
     def agent_loop(messages, tools, max_turns=25) -> str:
         """Call the model until it answers without tool calls (or the turn budget runs out)."""
-        # TODO: schemas = [schema for schema, fn in tools.values()]
-        # TODO: for each turn: reply = chat(messages, schemas); messages.append(reply)
-        # TODO:   print the trace: trace.rule(), trace.thinking(), trace.assistant()
-        # TODO:   if not reply.tool_calls: return "stopped"
-        # TODO:   for call in reply.tool_calls: result = execute(call, tools);
-        # TODO:       messages.append({"role": "tool", "tool_name": call.function.name, "content": result})
-        # TODO: after the loop: return "max_turns"
-        raise NotImplementedError("agent_loop")
+        # --- solution: agent_loop ---
+        schemas = [schema for schema, _fn in tools.values()]
+        for turn in range(max_turns):
+            trace.rule(f"turn {turn + 1}")
+            reply = chat(messages, schemas)
+            messages.append(reply)
+            trace.thinking(reply.thinking)
+            trace.assistant(reply.content)
+            if not reply.tool_calls:
+                return "stopped"
+            for call in reply.tool_calls:
+                trace.tool_call(call.function.name, dict(call.function.arguments or {}))
+                result = execute(call, tools)
+                trace.tool_result(result)
+                messages.append({"role": "tool", "tool_name": call.function.name, "content": result})
+        return "max_turns"
+        # --- end solution ---
     return agent_loop, execute
 
 
@@ -449,8 +471,10 @@ def _(mo, task):
 def _(McpSource, REPO_DIR, mo, sys, to_ollama_tool):
     src = McpSource([sys.executable, str(mo.notebook_dir() / "workshop" / "mcp_server.py"), str(REPO_DIR)])
 
-    # TODO: FILE_TOOLS = {t.name: (to_ollama_tool(t), <function calling src.call(t.name, args)>) for t in src.tools}
-    FILE_TOOLS = {}
+    # --- solution: mcp ---
+    FILE_TOOLS = {t.name: (to_ollama_tool(t), (lambda name: lambda **args: src.call(name, args))(t.name))
+                  for t in src.tools}
+    # --- end solution ---
     mo.md("MCP server exposes: " + ", ".join(f"`{n}`" for n in FILE_TOOLS))
     return FILE_TOOLS, src
 
@@ -491,7 +515,7 @@ def _(mo, task):
     ## 4.1 Run it
 
     - Pick an issue and run it. Watch the trace, then open its PR
-    - Or run: `uv run notebook.py -- --issue <url> --model qwen3.5:4b`
+    - Or run: `uv run agent.py -- --issue <url> --model qwen3.5:4b`
     - Issue 1 fixes a bug. Issues 2 and 3 add features. Try 1 first
     """)
     return

@@ -1,2 +1,7 @@
 __pycache__/
 .marimo/
+__marimo__/
+.venv/
+work/
+runs/
+TODO.md
