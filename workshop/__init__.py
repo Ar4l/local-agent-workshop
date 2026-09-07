@@ -3,7 +3,7 @@
 The notebook cells hold the code students write (chat, run_shell, execute,
 agent_loop).  This package holds the plumbing that is provided:
 
-- harness:    clone the repo, run the test gate + LLM review, open the PR
+- harness:    clone the repo, run the loop, commit, open the draft PR
 - mcp_server: a 30-line MCP server exposing read_file / write_file / edit_file
 - mcp_bridge: connect to any stdio MCP server from synchronous code
 - trace:      print a readable trace of what the agent does

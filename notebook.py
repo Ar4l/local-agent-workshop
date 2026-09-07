@@ -40,6 +40,7 @@ def _(mo):
     4. Solving issues from GitHub
     5. Ready harnesses
 
+    By the end you run `uv run notebook.py -- --issue <url>` and it opens a PR.
     Orange boxes are exercises. Solutions are in `agent.py`.
     """)
     return
@@ -106,7 +107,9 @@ def _(mo, task):
     - `uv run marimo edit notebook.py`
 
     ```bash
-    brew install ollama uv gh node   # macOS; see README for Linux/Windows
+    brew install ollama uv gh node                                                 # macOS
+    winget install Ollama.Ollama astral-sh.uv GitHub.cli OpenJS.NodeJS.LTS Git.Git   # Windows
+    # Linux: see README.md
     ```
     """)
     return
@@ -137,8 +140,12 @@ def _(ARGS, mo, task):
     | 16 GB | `gemma4:12b` (or `hf.co/JetBrains/Mellum2-12B-A2.5B-Thinking-GGUF-Q4_K_M`) | 7.4 GB |
     | 32 GB | `qwen3.8:27b` | 17 GB |
 
+    - Pull it yourself in a terminal now: the notebook never downloads models
+    - Ollama must be running: the macOS/Windows app starts it, on Linux run `ollama serve`
+    - Then pick the same model in the dropdown below
+
     ```bash
-    ollama pull qwen3.5:4b      # pick yours; then select it in the dropdown below
+    ollama pull qwen3.5:4b      # pick yours from the table
     ```
     """), model_ui])
     return (model_ui,)
@@ -147,7 +154,7 @@ def _(ARGS, mo, task):
 @app.cell
 def _(ARGS, model_ui):
     MODEL = ARGS.get("model") or model_ui.value
-    OPTIONS = {"num_ctx": 16384}   # Ollama defaults to 4k tokens on <24 GiB GPUs: too small for an agent
+    OPTIONS = {"num_ctx": 32768}   # Ollama defaults to 4k tokens on <24 GiB GPUs: an agent overflows that fast
     return MODEL, OPTIONS
 
 
@@ -265,7 +272,7 @@ def _(subprocess, workshop):
         """Run a shell command in the repo root and return its output and exit code.
 
         Args:
-            command: the command to run, e.g. `node --test tests/`
+            command: the command to run, e.g. `node --check app.js`
         """
         # TODO: refuse commands containing anything in DENY (return "BLOCKED: ...")
         # TODO: subprocess.run(command, shell=True, cwd=workshop.workdir(), timeout=60, text=True,
@@ -468,18 +475,17 @@ def _(mo):
         # 4. Fixing a GitHub issue end to end
 
         - The model receives the issue text and four tools. The harness handles everything else
-        - A deterministic gate runs first: the issue's test passes, no regressions and tests remain untouched
-        - Then the same model reviews the diff. Only APPROVE opens a draft PR
+        - When the model stops, the harness commits the diff and opens a draft PR
+        - Nothing is tested automatically. A human reviews the PR, as with any coding agent
         """),
         mo.mermaid("""
         flowchart LR
-          I["issue URL"] --> C["harness: fork, clone,<br/>branch, baseline tests"]
+          I["issue URL"] --> C["harness: fork, clone, branch"]
           C --> L["agent_loop<br/>(model + 4 tools)"]
-          L --> G{"gate: node --test<br/>issue test · regressions · tests/ untouched"}
-          G -->|fail| R["REVISE message"] --> L
-          G -->|pass| V{"LLM reviewer<br/>issue + diff + tests"}
-          V -->|REVISE| R
-          V -->|APPROVE| P["commit · push · draft PR"]
+          L --> D{"any file changed?"}
+          D -->|no| X["nothing pushed"]
+          D -->|yes| P["commit · push · draft PR"]
+          P --> H["human review"]
         """),
     ])
     return
@@ -502,7 +508,7 @@ def _(ARGS, mo):
     issue_ui = mo.ui.dropdown(
         options=[f"https://github.com/Ar4l/simple-todo-app/issues/{i}" for i in (1, 2, 3)],
         value=ARGS.get("issue") or "https://github.com/Ar4l/simple-todo-app/issues/1", label="issue")
-    pr_ui = mo.ui.checkbox(value=True, label="open a draft PR when approved")
+    pr_ui = mo.ui.checkbox(value=True, label="open a draft PR when done")
     run_ui = mo.ui.run_button(label="Run the agent on this issue")
     mo.hstack([issue_ui, pr_ui, run_ui], justify="start")
     return issue_ui, pr_ui, run_ui
@@ -524,14 +530,15 @@ def _(mo):
     mo.md(r"""
     ## 4.2 What to expect
 
-    - Verified: `qwen3.8:27b` fixed issue 1 in 4 turns and 3 minutes, PR opened
+    - Verified: `qwen3.8:27b` fixed issue 1 in 2 minutes and issue 2 in 9 (PR #8)
     - Feature issues need 10+ turns; tool output eats context, so results are capped at 8k chars
-    - Smaller models are slower and edit less precisely; the gate catches it, the reviewer explains it
+    - Smaller models are slower and edit less precisely. Read their PRs with care
 
-    | model | issue | turns | gate | reviewer | wall | result |
-    |---|---|---|---|---|---|---|
-    | `qwen3.8:27b` | 1 (bug) | 4 | ✅ | APPROVE | 3 min | [draft PR #7](https://github.com/Ar4l/simple-todo-app/pull/7) |
-    | `qwen3.8:27b` | 2 (feature) | 12+ | – | – | 8 min | context overflow at 16k before the cap existed |
+    | model | issue | turns | wall | result |
+    |---|---|---|---|---|
+    | `qwen3.8:27b` | 1 (bug) | 5 | 2 min | correct guard on `.focus()` (dry run, no PR) |
+    | `qwen3.8:27b` | 2 (feature) | 11 | 8.5 min | [draft PR #8](https://github.com/Ar4l/simple-todo-app/pull/8): app.js +54, style.css +17 |
+    | `qwen3.8:27b` | 2 (feature) | 14 | 8 min | context overflow at 16k, before `num_ctx` 32k and the 8k cap |
     """)
     return
 
@@ -580,7 +587,7 @@ def _(mo):
     ## Takeaways
 
     - An agent is a loop: the model proposes, your code validates and executes, then returns results
-    - Small local models work with few tools, enough context and a test gate
+    - Small local models work with few tools, enough context and a human reviewing the PR
     - MCP supplies tools, not intelligence. Harnesses provide prompts, loops and stop rules
     """)
     return
