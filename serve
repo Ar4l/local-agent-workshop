@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+notebook="${1:-${repo_dir}/notebook.py}"
+port="${MARIMO_PORT:-2719}"
+readme="${repo_dir}/README.md"
+log_file="$(mktemp "${TMPDIR:-/tmp}/marimo-cloudflared.XXXXXX")"
+marimo_pid=""
+tunnel_pid=""
+
+set_readme_status() {
+  local status="$1"
+  local temporary
+  temporary="$(mktemp "${repo_dir}/.README.XXXXXX")"
+  awk -v status="$status" '
+    /<!-- live-url:start -->/ {
+      print
+      print status
+      replacing = 1
+      next
+    }
+    /<!-- live-url:end -->/ {
+      replacing = 0
+    }
+    !replacing { print }
+  ' "$readme" >"$temporary"
+  mv "$temporary" "$readme"
+}
+
+cleanup() {
+  trap - EXIT INT TERM
+  [[ -n "$tunnel_pid" ]] && kill "$tunnel_pid" 2>/dev/null || true
+  [[ -n "$marimo_pid" ]] && kill "$marimo_pid" 2>/dev/null || true
+  [[ -n "$tunnel_pid" ]] && wait "$tunnel_pid" 2>/dev/null || true
+  [[ -n "$marimo_pid" ]] && wait "$marimo_pid" 2>/dev/null || true
+  rm -f "$log_file"
+  set_readme_status '_Not running._'
+}
+trap cleanup EXIT INT TERM
+
+marimo_args=(
+  uvx marimo run "$notebook"
+  --host 127.0.0.1
+  --port "$port"
+  --headless
+  --watch
+  --include-code
+)
+
+if [[ -n "${MARIMO_PASSWORD:-}" ]]; then
+  marimo_args+=(--token --token-password "$MARIMO_PASSWORD")
+else
+  marimo_args+=(--no-token)
+fi
+
+"${marimo_args[@]}" &
+marimo_pid=$!
+
+for _ in {1..60}; do
+  curl --silent --fail "http://127.0.0.1:${port}/health" >/dev/null && break
+  kill -0 "$marimo_pid" 2>/dev/null || {
+    echo "Marimo stopped before becoming ready." >&2
+    exit 1
+  }
+  sleep 0.5
+done
+curl --silent --fail "http://127.0.0.1:${port}/health" >/dev/null || {
+  echo "Marimo did not become ready." >&2
+  exit 1
+}
+
+cloudflared tunnel \
+  --no-autoupdate \
+  --protocol http2 \
+  --url "http://127.0.0.1:${port}" \
+  > >(tee "$log_file") 2>&1 &
+tunnel_pid=$!
+
+public_url=""
+for _ in {1..120}; do
+  public_url="$(sed -nE 's#.*(https://[a-z0-9-]+\.trycloudflare\.com).*#\1#p' "$log_file" | head -n 1)"
+  [[ -n "$public_url" ]] && break
+  kill -0 "$tunnel_pid" 2>/dev/null || {
+    echo "Cloudflare Tunnel stopped before publishing a URL." >&2
+    exit 1
+  }
+  sleep 0.5
+done
+
+[[ -n "$public_url" ]] || {
+  echo "Timed out waiting for the public URL." >&2
+  exit 1
+}
+
+student_url="${public_url}/?show-code=true"
+set_readme_status "[Open the live notebook](${student_url})"
+
+printf '\nStudent URL: %s\n' "$student_url"
+if [[ -n "${MARIMO_PASSWORD:-}" ]]; then
+  printf 'Password: %s\n' "$MARIMO_PASSWORD"
+fi
+printf 'Press Ctrl-C to stop.\n\n'
+
+wait "$tunnel_pid"
