@@ -3,9 +3,11 @@ set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 notebook="${1:-${repo_dir}/notebook.py}"
-port="${MARIMO_PORT:-2719}"
+edit_port="${MARIMO_EDIT_PORT:-2718}"
+student_port="${MARIMO_PORT:-2719}"
 readme="${repo_dir}/README.md"
 log_file="$(mktemp "${TMPDIR:-/tmp}/marimo-cloudflared.XXXXXX")"
+edit_pid=""
 marimo_pid=""
 tunnel_pid=""
 
@@ -32,17 +34,26 @@ cleanup() {
   trap - EXIT INT TERM
   [[ -n "$tunnel_pid" ]] && kill "$tunnel_pid" 2>/dev/null || true
   [[ -n "$marimo_pid" ]] && kill "$marimo_pid" 2>/dev/null || true
+  [[ -n "$edit_pid" ]] && kill "$edit_pid" 2>/dev/null || true
   [[ -n "$tunnel_pid" ]] && wait "$tunnel_pid" 2>/dev/null || true
   [[ -n "$marimo_pid" ]] && wait "$marimo_pid" 2>/dev/null || true
+  [[ -n "$edit_pid" ]] && wait "$edit_pid" 2>/dev/null || true
   rm -f "$log_file"
   set_readme_status '_Not running._'
 }
 trap cleanup EXIT INT TERM
 
+uvx marimo edit "$notebook" \
+  --host 127.0.0.1 \
+  --port "$edit_port" \
+  --headless \
+  --no-token &
+edit_pid=$!
+
 marimo_args=(
   uvx marimo run "$notebook"
   --host 127.0.0.1
-  --port "$port"
+  --port "$student_port"
   --headless
   --watch
   --include-code
@@ -58,22 +69,27 @@ fi
 marimo_pid=$!
 
 for _ in {1..60}; do
-  curl --silent --fail "http://127.0.0.1:${port}/health" >/dev/null && break
+  curl --silent --fail "http://127.0.0.1:${student_port}/health" >/dev/null && break
   kill -0 "$marimo_pid" 2>/dev/null || {
     echo "Marimo stopped before becoming ready." >&2
     exit 1
   }
   sleep 0.5
 done
-curl --silent --fail "http://127.0.0.1:${port}/health" >/dev/null || {
+curl --silent --fail "http://127.0.0.1:${student_port}/health" >/dev/null || {
   echo "Marimo did not become ready." >&2
+  exit 1
+}
+
+curl --silent --fail "http://127.0.0.1:${edit_port}/health" >/dev/null || {
+  echo "Marimo editor did not become ready." >&2
   exit 1
 }
 
 cloudflared tunnel \
   --no-autoupdate \
   --protocol http2 \
-  --url "http://127.0.0.1:${port}" \
+  --url "http://127.0.0.1:${student_port}" \
   > >(tee "$log_file") 2>&1 &
 tunnel_pid=$!
 
@@ -96,6 +112,7 @@ done
 student_url="${public_url}/?show-code=true"
 set_readme_status "[Open the live notebook](${student_url})"
 
+printf '\nEditor URL:  http://127.0.0.1:%s\n' "$edit_port"
 printf '\nStudent URL: %s\n' "$student_url"
 if [[ -n "${MARIMO_PASSWORD:-}" ]]; then
   printf 'Password: %s\n' "$MARIMO_PASSWORD"
