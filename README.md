@@ -26,7 +26,7 @@ and open draft PRs for you to review. No API keys.
    | RAM | model | size |
    |---|---|---|
    | 8 GB | `ollama pull qwen3.5:4b` (or `gemma4:e4b-it-qat`) | 3.4 GB |
-   | 16 GB | `ollama pull gemma4:12b` (or `hf.co/JetBrains/Mellum2-12B-A2.5B-Thinking-GGUF-Q4_K_M`) | 7.4 GB |
+   | 16 GB | `ollama pull gemma4:12b` | 7.4 GB |
    | 32 GB | `ollama pull qwen3.8:27b` | 17 GB |
 
 4. Clone and open the notebook:

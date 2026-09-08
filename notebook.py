@@ -129,7 +129,7 @@ def _(mo):
 def _(ARGS, mo, task):
     model_ui = mo.ui.dropdown(
         options=["qwen3.5:4b", "gemma4:e4b-it-qat", "gemma4:12b",
-                 "hf.co/JetBrains/Mellum2-12B-A2.5B-Thinking-GGUF-Q4_K_M", "qwen3.8:27b", "qwen3.5:9b"],
+                 "qwen3.8:27b", "qwen3.5:9b"],
         value=ARGS.get("model") or "qwen3.5:4b", label="model")
     mo.vstack([task(r"""
     ## 1.1 Choose a model for your RAM
@@ -137,7 +137,7 @@ def _(ARGS, mo, task):
     | RAM | model | download |
     |:---|:---|:---|
     | 8 GB | `qwen3.5:4b` (or `gemma4:e4b-it-qat`) | 3.4 GB |
-    | 16 GB | `gemma4:12b` (or `hf.co/JetBrains/Mellum2-12B-A2.5B-Thinking-GGUF-Q4_K_M`) | 7.4 GB |
+    | 16 GB | `gemma4:12b` | 7.4 GB |
     | 32 GB | `qwen3.8:27b` | 17 GB |
 
     - Pull it yourself in a terminal now: the notebook never downloads models
@@ -520,6 +520,27 @@ def _(mo, task):
     - Pick an issue and run it. Watch the trace, then open its PR
     - Or run: `uv run notebook.py -- --issue <url> --model qwen3.5:4b`
     - Issue 1 fixes a bug. Issues 2 and 3 add features. Try 1 first
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## 4.2 What to expect (15 runs, 32k context, no gate)
+
+    - Every model that calls tools fixes the bug issue in under 5 minutes
+    - Only the 27B passes issue 3 and keeps existing behaviour intact on all three
+    - Small models ship plausible PRs fast and quietly break features: review the diff
+
+    | tier | model | memory | 1: bug | 2: description | 3: due date |
+    |:---|:---|:---|:---|:---|:---|
+    | 32 GB | `qwen3.8:27b` | 18 GB | ✅ 1.5 min | ✅ 7 min | ✅ 7 min |
+    | 16 GB | `gemma4:12b` | 8.4 GB | ✅ 4.5 min | ✅ 18 min | ✗ silent, killed at 25 min |
+    | 8 GB | `gemma4:e4b-it-qat` | 5.7 GB | ✅ 1 min | ✅ but broke Escape-to-cancel | ✗ half done |
+    | 8 GB | `qwen3.5:4b` | 4.3 GB | ✅ 45 s | partial, 11 min | ✗ 25 turns, broke add/delete |
+
+    Most tool errors were `edit_file` with an `old` string that did not match the file verbatim.
     """)
     return
 
