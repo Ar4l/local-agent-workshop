@@ -1,3 +1,6 @@
+> [!NOTE]
+> **[Please don't hesitate to connect on LinkedIn: `aral_dm`](https://www.linkedin.com/in/aral-dm/)**
+
 # How to create a local agent
 
 **Slides:** [aral.cc/local-agent-workshop](https://aral.cc/local-agent-workshop/) (static export of `agent.py`, code included) · [PDF](https://aral.cc/local-agent-workshop/slides.pdf)
