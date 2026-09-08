@@ -64,7 +64,7 @@ and opens a draft PR. Nothing is tested automatically: you review the PR.
 
 The static deck under `docs/` is regenerated with
 `uv run marimo export html agent.py --include-code -o docs/index.html -f  # then re-add the noindex meta` and
-`uv run marimo export pdf agent.py --as slides --rasterize-outputs -o docs/slides.pdf --sandbox`;
+the slides PDF is built from per-slide screenshots (see `tools/slides_pdf.py`; do NOT use `marimo export pdf --sandbox`: it writes a PEP 723 header into agent.py that breaks `uv run agent.py`);
 GitHub Pages serves `docs/` (noindex). `./serve` starts a private editor on port 2718, a read-only student view on 2719 and a Cloudflare
 tunnel; the public URL is written into this README between the markers below.
 
